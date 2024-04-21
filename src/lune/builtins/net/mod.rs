@@ -3,8 +3,7 @@
 use bstr::BString;
 use mlua::prelude::*;
 use mlua_luau_scheduler::LuaSpawnExt;
-
-use tokio::net::UdpSocket;
+use std::{net::SocketAddr, str::FromStr};
 
 mod client;
 mod config;
@@ -19,7 +18,7 @@ use self::{
     client::{NetClient, NetClientBuilder},
     config::{RequestConfig, ServeConfig},
     server::serve,
-    udpsocket::UdpSocket as NetUdpSocket,
+    udpsocket::{UdpListenerExt, UdpSocket},
     util::create_user_agent_header,
     websocket::NetWebSocket,
 };
@@ -36,7 +35,7 @@ pub fn create(lua: &Lua) -> LuaResult<LuaTable> {
         .with_function("jsonDecode", net_json_decode)?
         .with_async_function("request", net_request)?
         .with_async_function("socket", net_socket)?
-        .with_async_function("udpSocket", net_udp_socket)?
+        .with_async_function("udpSocket", net_udp_socket_bind)?
         .with_async_function("serve", net_serve)?
         .with_function("urlEncode", net_url_encode)?
         .with_function("urlDecode", net_url_decode)?
@@ -67,10 +66,15 @@ async fn net_socket(lua: &Lua, url: String) -> LuaResult<LuaTable> {
     NetWebSocket::new(ws).into_lua_table(lua)
 }
 
-async fn net_udp_socket(lua: &Lua, url: String) -> LuaResult<LuaTable> {
-    let socket = UdpSocket::bind(url).await.into_lua_err()?;
-
-    NetUdpSocket::new(socket)
+async fn net_udp_socket_bind(lua: &Lua, addr: String) -> LuaResult<UdpSocket> {
+    UdpSocket::bind(SocketAddr::from_str(&addr).map_err(|err| {
+        mlua::Error::FromLuaConversionError {
+            from: "String",
+            to: "SocketAddr",
+            message: Some(err.to_string().to_string()),
+        }
+    })?)
+    .await
 }
 
 async fn net_serve<'lua>(
